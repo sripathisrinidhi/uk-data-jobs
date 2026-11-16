@@ -33,3 +33,12 @@ class Settings:
     reed_call_budget: int = field(default_factory=lambda: int(os.getenv("REED_CALL_BUDGET", "300")))
     # Details calls for full descriptions, only for Reed jobs we haven't enriched yet.
     reed_max_details: int = field(default_factory=lambda: int(os.getenv("REED_MAX_DETAILS", "250")))
+
+    # --- Week 2: LLM enrichment ---
+    gemini_api_key: str | None = field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
+    # "-latest" alias tracks Google's current Flash-Lite model; pin a version for reproducibility.
+    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-flash-lite-latest"))
+    gemini_min_interval: float = field(default_factory=lambda: float(os.getenv("GEMINI_MIN_INTERVAL", "4.5")))
+    # USD per 1M tokens, used for the cost estimate. Check the Gemini pricing page and update.
+    llm_input_usd_per_m: float = field(default_factory=lambda: float(os.getenv("LLM_INPUT_USD_PER_M", "0.10")))
+    llm_output_usd_per_m: float = field(default_factory=lambda: float(os.getenv("LLM_OUTPUT_USD_PER_M", "0.40")))

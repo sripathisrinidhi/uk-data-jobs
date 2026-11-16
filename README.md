@@ -2,7 +2,7 @@
 
 Collects UK Data / ML job postings every day from **Adzuna** and **Reed**, stores them in Postgres, and (in later weeks) enriches them with an LLM, analyses them, predicts salaries, and answers questions via RAG.
 
-> **Status:** Week 1: data collection ✅
+> **Status:** Week 1: data collection ✅ · Week 2: LLM enrichment 🚧
 
 ## Architecture (Week 1)
 
@@ -31,6 +31,28 @@ GitHub Actions (daily cron)
 | Hard call budget per run | A bug can't burn the monthly API quota. |
 | `description_hash` | Cache key so each description is paid for once in the LLM step. |
 
+## Week 2: LLM enrichment
+
+Each full job description goes to Gemini (Flash-Lite) with a **JSON schema** (structured output), and the reply is validated with **Pydantic** (`jobsintel/extraction.py`):
+
+```json
+{"skills": ["Python", "SQL", "AWS"], "experience_years_min": 3, "seniority": "senior",
+ "work_mode": "hybrid", "visa_sponsorship": "yes", "role_family": "data_scientist"}
+```
+
+- Skills are normalised (`Amazon Web Services` / `aws` → `AWS`) so counts are meaningful.
+- Results go to `job_enrichments` with model, prompt version, tokens, latency and estimated cost per job.
+- Re-enriches only when a description changes (`description_hash`) or the prompt version changes.
+- **Evaluation:** 50 jobs hand-labelled *before* looking at model output (`eval/labels.csv`), scored with skill precision/recall/F1 and per-field accuracy → `eval/report.md`.
+
+```bash
+python -m jobsintel.enrich --limit 3 --show      # try a few
+python -m jobsintel.enrich --limit 200           # batch (also runs daily in GitHub Actions)
+python -m jobsintel.enrich --stats               # tokens, cost per 1,000 jobs, coverage
+python -m jobsintel.evaluate sample --n 50       # make the labelling set
+python -m jobsintel.evaluate score               # precision / recall / accuracy report
+```
+
 ## Setup
 
 1. **API keys** (free)
@@ -42,13 +64,13 @@ GitHub Actions (daily cron)
    python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
    pip install -r requirements.txt
    cp .env.example .env                                   # fill in keys
-   pytest -q                                              # 14 tests, no network needed
+   pytest -q                                              # no network needed
 
    python -m jobsintel.collect --dry-run --terms "data scientist" --max-pages 1   # test keys -> data/*.jsonl
    python -m jobsintel.collect --init-db                  # create tables
    python -m jobsintel.collect                            # real run
    ```
-4. **Daily automation**: push to GitHub, then *Settings → Secrets and variables → Actions* and add `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `REED_API_KEY`, `DATABASE_URL`. Trigger once from the *Actions* tab ("Run workflow") to check.
+4. **Daily automation**: push to GitHub, then *Settings → Secrets and variables → Actions* and add `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `REED_API_KEY`, `DATABASE_URL`, `GEMINI_API_KEY`. Trigger once from the *Actions* tab ("Run workflow") to check.
 
 ## Useful queries
 
@@ -68,7 +90,8 @@ FROM collection_runs ORDER BY started_at DESC LIMIT 10;
 ## Roadmap
 
 - [x] Week 1: collection
-- [ ] Week 2: LLM enrichment (skills, seniority, remote, visa) + 50-job labelled eval set
+- [x] Week 2: LLM enrichment (skills, seniority, remote, visa)
+- [ ] Week 2: 50-job labelled eval set + report
 - [ ] Week 3: SQL analysis + dashboard
 - [ ] Week 4: salary model (baseline → LightGBM, SHAP, MLflow)
 - [ ] Week 5: RAG chatbot + CV matching

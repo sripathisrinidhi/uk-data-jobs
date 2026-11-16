@@ -8,7 +8,7 @@ on:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,4 +21,14 @@ jobs:
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
           REED_API_KEY: ${{ secrets.REED_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Apply any new DB migrations
+        run: python -m jobsintel.collect --init-db
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: LLM enrichment (skills, seniority, visa ...)
+        run: python -m jobsintel.enrich --limit 200
+        continue-on-error: true   # a quota hiccup shouldn't mark the collection run as failed
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

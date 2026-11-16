@@ -8,7 +8,7 @@ from typing import Iterable, Protocol
 
 from jobsintel.models import JobPosting
 
-SCHEMA_PATH = Path(__file__).resolve().parent.parent / "sql" / "001_init.sql"
+SQL_DIR = Path(__file__).resolve().parent.parent / "sql"
 
 COLUMNS = [
     "source", "source_id", "title", "company", "location", "location_area",
@@ -58,8 +58,10 @@ class PostgresStore:
         self.conn = psycopg.connect(dsn, autocommit=False)
 
     def init_schema(self) -> None:
+        """Apply every sql/*.sql file in order. All files are idempotent."""
         with self.conn.cursor() as cur:
-            cur.execute(SCHEMA_PATH.read_text())
+            for path in sorted(SQL_DIR.glob("*.sql")):
+                cur.execute(path.read_text())
         self.conn.commit()
 
     def ids_with_full_description(self, source: str, ids: Iterable[str]) -> set[str]:

@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 data/*.jsonl
+# full job texts stay local; labels.csv is committed
+eval/jobs_to_label.md

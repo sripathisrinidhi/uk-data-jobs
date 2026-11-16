@@ -139,11 +139,20 @@ def cmd_sample(conn, n: int, seed: int, force: bool) -> int:
         return 2
     from psycopg.rows import dict_row
     with conn.cursor(row_factory=dict_row) as cur:
+        # One job per company: some recruiters post the same advert hundreds of times,
+        # which would make the eval set repetitive and unrepresentative.
         cur.execute("""
-            SELECT id, title, company, location, url, description FROM jobs
-            WHERE description_is_full AND length(description) >= 200
-            ORDER BY md5(id::text || %s) LIMIT %s""", (str(seed), n))
+            SELECT * FROM (
+                SELECT DISTINCT ON (lower(coalesce(company, '')))
+                       id, title, company, location, url, description
+                FROM jobs
+                WHERE description_is_full AND length(description) >= 200
+                ORDER BY lower(coalesce(company, '')), md5(id::text || %s)
+            ) one_per_company
+            ORDER BY md5(id::text || %s) LIMIT %s""", (str(seed), str(seed), n))
         jobs = cur.fetchall()
+        if len(jobs) < n:
+            log.warning("only %d distinct companies with full descriptions so far", len(jobs))
     EVAL_DIR.mkdir(exist_ok=True)
     with LABELS.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS)

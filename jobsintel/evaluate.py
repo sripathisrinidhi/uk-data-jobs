@@ -1,7 +1,7 @@
 """Measure how accurate the LLM extraction is against hand-made labels.
 
     python -m jobsintel.evaluate sample --n 50   # pick 50 jobs, write files to label
-    (fill in eval/labels.csv by hand, reading eval/jobs_to_label.md)
+    python -m jobsintel.evaluate label           # answer questions job by job (resumable)
     python -m jobsintel.evaluate score           # compare LLM output to your labels
 
 Label first, look at the LLM output after. Otherwise you bias the test.
@@ -210,6 +210,78 @@ def cmd_score(conn, settings) -> int:
     return 0
 
 
+# ---------------- interactive labelling ----------------
+
+def _ask_choice(question: str, options: list[str], ask=input) -> str | None:
+    menu = "  ".join(f"[{i}] {o}" for i, o in enumerate(options, 1))
+    while True:
+        ans = ask(f"{question}\n  {menu}\n  > ").strip().lower()
+        if ans == "q":
+            return None
+        if ans.isdigit() and 1 <= int(ans) <= len(options):
+            return options[int(ans) - 1]
+        if ans in options:
+            return ans
+        print("  Please type a number from the list (or q to quit).")
+
+
+def label_rows(rows: list[dict], jobs: dict[int, dict], save, ask=input, show=print) -> int:
+    """Walk through unlabelled rows, asking one question at a time. Saves after every job."""
+    todo = [r for r in rows if not (r.get("seniority") or "").strip()]
+    done_before = len(rows) - len(todo)
+    for k, row in enumerate(todo, 1):
+        job = jobs.get(int(row["job_id"]), {})
+        show("\n" + "=" * 80)
+        show(f"JOB {done_before + k} of {len(rows)}  (job_id {row['job_id']})")
+        show(f"{job.get('title', row.get('title'))}  |  {job.get('company', '')}  |  {job.get('location', '')}")
+        show("-" * 80)
+        show(job.get("description", "(description not found)"))
+        show("-" * 80)
+        show("Answer from the advert only. Type q at any question to save and stop.\n")
+
+        skills = ask("1) Technical skills, separated by ;  (e.g. Python; SQL; AWS). Enter = none\n  > ").strip()
+        if skills.lower() == "q":
+            return k - 1
+        years = ask("2) Minimum years of experience? (number, or Enter if not stated)\n  > ").strip()
+        if years.lower() == "q":
+            return k - 1
+        answers = {}
+        for key, question in [("seniority", "3) Seniority?"), ("work_mode", "4) Work mode?"),
+                              ("visa_sponsorship", "5) Visa sponsorship?"), ("role_family", "6) Role type?")]:
+            a = _ask_choice(question, ALLOWED[key], ask)
+            if a is None:
+                return k - 1
+            answers[key] = a
+        row.update(skills=skills, experience_years_min=years if years else "none", **answers)
+        save(rows)
+        show(f"Saved. {done_before + k}/{len(rows)} labelled.")
+    show("\nAll jobs labelled! Now run: python -m jobsintel.evaluate score")
+    return len(todo)
+
+
+def _write_rows(rows: list[dict]) -> None:
+    with LABELS.open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+
+
+def cmd_label(conn) -> int:
+    if not LABELS.exists():
+        log.error("run 'python -m jobsintel.evaluate sample' first")
+        return 2
+    with LABELS.open() as f:
+        rows = list(csv.DictReader(f))
+    from psycopg.rows import dict_row
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute("SELECT id, title, company, location, description FROM jobs WHERE id = ANY(%s)",
+                    ([int(r["job_id"]) for r in rows],))
+        jobs = {j["id"]: j for j in cur.fetchall()}
+    n = label_rows(rows, jobs, _write_rows)
+    log.info("labelled %d jobs this session", n)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Evaluate LLM extraction against hand labels")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -218,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--seed", type=int, default=42)
     s.add_argument("--force", action="store_true")
     sub.add_parser("score")
+    sub.add_parser("label", help="label jobs one question at a time")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
@@ -230,6 +303,8 @@ def main(argv: list[str] | None = None) -> int:
     conn = psycopg.connect(settings.database_url)
     if args.cmd == "sample":
         return cmd_sample(conn, args.n, args.seed, args.force)
+    if args.cmd == "label":
+        return cmd_label(conn)
     return cmd_score(conn, settings)
 
 

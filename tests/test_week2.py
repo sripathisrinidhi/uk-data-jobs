@@ -172,3 +172,23 @@ def test_score_precision_recall_and_accuracy():
     assert r["fields"]["work_mode"] == {"accuracy": 0.0, "n": 1}  # blank label skipped
     assert r["fields"]["experience_years_min"]["accuracy"] == 1.0
     assert ("AWS", 1) in r["skills"]["top_missed"]
+
+
+def test_interactive_label_saves_each_job_and_resumes():
+    from jobsintel.evaluate import label_rows
+    rows = [{"job_id": "1", "title": "DS"}, {"job_id": "2", "title": "DA"}]
+    jobs = {1: {"title": "DS", "description": "..."}, 2: {"title": "DA", "description": "..."}}
+    answers = iter(["Python; SQL", "3", "4", "2", "x", "1", "1",   # job 1 ("x" invalid -> re-asked)
+                    "Excel", "q"])                                  # quit during job 2
+    saves = []
+    n = label_rows(rows, jobs, lambda r: saves.append([dict(x) for x in r]),
+                   ask=lambda prompt: next(answers), show=lambda *a: None)
+    assert n == 1 and len(saves) == 1
+    assert rows[0] == {"job_id": "1", "title": "DS", "skills": "Python; SQL", "experience_years_min": "3",
+                       "seniority": "senior", "work_mode": "hybrid", "visa_sponsorship": "yes",
+                       "role_family": "data_scientist"}
+    assert "seniority" not in rows[1]
+    # resume: only job 2 is asked
+    answers2 = iter(["", "", "7", "4", "3", "7"])
+    n2 = label_rows(rows, jobs, lambda r: None, ask=lambda p: next(answers2), show=lambda *a: None)
+    assert n2 == 1 and rows[1]["experience_years_min"] == "none" and rows[1]["role_family"] == "other"

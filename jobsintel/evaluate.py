@@ -212,6 +212,25 @@ def cmd_score(conn, settings) -> int:
 
 # ---------------- interactive labelling ----------------
 
+HINT_PATTERNS = {
+    "EXPERIENCE": r"\b\d+\s*\+?\s*(?:-|to)?\s*\d*\s*years?\b|no experience|entry[- ]level|graduate",
+    "WORK MODE": r"hybrid|remote|work from home|wfh|on-?site|in the office|office[- ]based|days? (?:a|per) week",
+    "VISA": r"sponsor|visa|right to work|eligible to (?:live and )?work",
+    "LEVEL": r"\b(?:junior|senior|lead|principal|head of|manager|director|trainee|intern)\b",
+}
+
+
+def find_hints(text: str, max_per_kind: int = 3) -> dict[str, list[str]]:
+    """Sentences mentioning years / work mode / visa / level, so the labeller doesn't
+    have to read every word. Pure keyword search, no model output involved."""
+    sentences = re.split(r"(?<=[.!?])\s+|\s[•·]\s", text or "")
+    out: dict[str, list[str]] = {}
+    for kind, pat in HINT_PATTERNS.items():
+        hits = [s.strip()[:220] for s in sentences if re.search(pat, s, re.I)]
+        out[kind] = hits[:max_per_kind]
+    return out
+
+
 def _ask_choice(question: str, options: list[str], ask=input) -> str | None:
     menu = "  ".join(f"[{i}] {o}" for i, o in enumerate(options, 1))
     while True:
@@ -237,9 +256,18 @@ def label_rows(rows: list[dict], jobs: dict[int, dict], save, ask=input, show=pr
         show("-" * 80)
         show(job.get("description", "(description not found)"))
         show("-" * 80)
+        show(">>> HINTS (lines from the advert that matter). Nothing found = probably unknown")
+        for kind, lines in find_hints(job.get("description", "")).items():
+            show(f"  {kind}:")
+            show("\n".join(f"     - {l}" for l in lines) if lines else "     (not mentioned)")
+        show("-" * 80)
         show("Answer from the advert only. Type q at any question to save and stop.\n")
 
-        skills = ask("1) Technical skills, separated by ;  (e.g. Python; SQL; AWS). Enter = none\n  > ").strip()
+        while True:
+            skills = ask("1) Technical skills, separated by ;  (e.g. Python; SQL; AWS). Enter = none\n  > ").strip()
+            if not re.fullmatch(r"\d+", skills):
+                break
+            show("  That looks like a number. Type skill names, or just Enter if none.")
         if skills.lower() == "q":
             return k - 1
         years = ask("2) Minimum years of experience? (number, or Enter if not stated)\n  > ").strip()

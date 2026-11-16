@@ -192,3 +192,22 @@ def test_interactive_label_saves_each_job_and_resumes():
     answers2 = iter(["", "", "7", "4", "3", "7"])
     n2 = label_rows(rows, jobs, lambda r: None, ask=lambda p: next(answers2), show=lambda *a: None)
     assert n2 == 1 and rows[1]["experience_years_min"] == "none" and rows[1]["role_family"] == "other"
+
+
+def test_find_hints_pulls_relevant_sentences():
+    from jobsintel.evaluate import find_hints
+    h = find_hints("We are great. You need 3+ years of Python. This is a hybrid role, 2 days a week. "
+                   "Applicants must have the right to work in the UK. Senior position.")
+    assert any("3+ years" in l for l in h["EXPERIENCE"])
+    assert any("hybrid" in l for l in h["WORK MODE"])
+    assert any("right to work" in l for l in h["VISA"])
+    assert any("Senior" in l for l in h["LEVEL"])
+    assert find_hints("")["VISA"] == []
+
+
+def test_label_rejects_number_as_skills():
+    from jobsintel.evaluate import label_rows
+    rows = [{"job_id": "1", "title": "DS"}]
+    answers = iter(["0", "Python", "", "7", "4", "3", "7"])
+    label_rows(rows, {1: {"description": ""}}, lambda r: None, ask=lambda p: next(answers), show=lambda *a: None)
+    assert rows[0]["skills"] == "Python"
